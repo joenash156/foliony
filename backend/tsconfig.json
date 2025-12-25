@@ -1,0 +1,37 @@
+{
+  "compilerOptions": {
+    // File Layout
+    "rootDir": "./src",         // All TS source files live in src/
+    "outDir": "./dist",         // Compiled JS goes here
+
+    // Environment / Module Settings
+    "module": "commonjs",       // Node.js uses CommonJS modules
+    "target": "ESNext",         // Modern JS output
+    "lib": ["ESNext"],          // Built-in types for modern JS
+    "types": ["node"],          // Include Node.js type definitions
+
+    // Outputs / Build Options
+    "sourceMap": true,          // Generates .map files for debugging
+    "declaration": true,        // Generates .d.ts files for TS types (useful for modules)
+    "declarationMap": true,     // Maps declarations back to TS source
+
+    // Strict Type Checking Options
+    "strict": true,                          // Enable all strict type-checking options
+    "noImplicitReturns": true,               // Ensure all functions return something or explicitly void
+    "noImplicitOverride": true,              // Require `override` keyword when overriding methods
+    "noUnusedLocals": true,                  // Warn about unused local variables
+    "noUnusedParameters": true,              // Warn about unused function parameters
+    "noFallthroughCasesInSwitch": true,     // Catch accidental fallthrough in switch statements
+    "noUncheckedIndexedAccess": true,        // Make sure accessing array/object by index is checked
+    "exactOptionalPropertyTypes": true,      // Optional properties are strictly typed
+
+    // Module / Interop Options
+    "esModuleInterop": true,                 // Allows clean import/export syntax
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,                 // Required for tools like ts-node or Babel
+    "moduleResolution": "node",              // Node.js module resolution strategy
+    "skipLibCheck": true                     // Skip type checking of node_modules (speeds up build)
+  },
+  "include": ["src"],                        // Include all TS files in src/
+  "exclude": ["node_modules", "dist"]        // Exclude compiled output and dependencies
+}
