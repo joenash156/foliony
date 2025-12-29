@@ -4,6 +4,8 @@
     "rootDir": "./src",         // All TS source files live in src/
     "outDir": "./dist",         // Compiled JS goes here
 
+    "typeRoots": ["./node_modules/@types", "./src/types"],
+
     // Environment / Module Settings
     "module": "commonjs",       // Node.js uses CommonJS modules
     "target": "ESNext",         // Modern JS output
@@ -32,6 +34,6 @@
     "moduleResolution": "node",              // Node.js module resolution strategy
     "skipLibCheck": true                     // Skip type checking of node_modules (speeds up build)
   },
-  "include": ["src"],                        // Include all TS files in src/
+  "include": ["src", "./src/types"],                        // Include all TS files in src/
   "exclude": ["node_modules", "dist"]        // Exclude compiled output and dependencies
 }
