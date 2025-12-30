@@ -8,20 +8,20 @@ interface TokenPayload {
 const ACCESS_TOKEN_SECRET_KEY = process.env.JWT_ACCESS_TOKEN_SECRET as string;
 const REFRESH_TOKEN_SECRET_KEY = process.env.JWT_REFRESH_TOKEN_SECRET as string;
 
-function signAccessToken(payload: TokenPayload): string {
+async function signAccessToken(payload: TokenPayload): Promise<string> {
   return jwt.sign(payload, ACCESS_TOKEN_SECRET_KEY, { expiresIn: "15m" });
 }
 
-function signRefreshToken(payload: TokenPayload): string {
+async function signRefreshToken(payload: TokenPayload): Promise<string> {
   return jwt.sign(payload, REFRESH_TOKEN_SECRET_KEY, { expiresIn: "7d" });
 }
 
-function verifyAccessToken(token: string): TokenPayload {
+async function verifyAccessToken(token: string): Promise<TokenPayload> {
   const decoded = jwt.verify(token, ACCESS_TOKEN_SECRET_KEY) as JwtPayload;
   return decoded as TokenPayload;
 }
 
-function verifyRefreshToken(token: string): TokenPayload {
+async function verifyRefreshToken(token: string): Promise<TokenPayload> {
   const decoded = jwt.verify(token, REFRESH_TOKEN_SECRET_KEY) as JwtPayload;
   return decoded as TokenPayload;
 }

@@ -27,7 +27,7 @@ export async function requireAuth(req:Request, res: Response, next: NextFunction
   }
 
   try {
-    const payload = verifyAccessToken(token)
+    const payload = await verifyAccessToken(token)
 
     const [user] = await db.query<RowDataPacket[]>("SELECT id, email FROM users WHERE id = ?", [payload.id]);
     if(user.length === 0) {

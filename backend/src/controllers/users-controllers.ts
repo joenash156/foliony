@@ -1,16 +1,24 @@
-import { hashItem } from "../utils/hashing"
+import { hashItem, compareHashedItem } from "../utils/hashing"
 import { generateSlugSuffix } from "../utils/slug-suffix";
 import db from "../configs/database";
 import { Request, Response } from "express"
 import { v4 as uuid } from "uuid";
 import { RowDataPacket } from "mysql2";
+import { signAccessToken, signRefreshToken } from "../utils/jwt";
+//import "../types/express";
 
 interface RequestBody {
-  firstname: string
-  lastname: string
-  email: string
-  password: string
+  firstname?: string
+  lastname?: string
+  email?: string
+  password?: string
 }
+
+const REFRESH_TOKEN_EXPIRY_DAYS = 7;
+
+const expiresAt = new Date(
+  Date.now() + REFRESH_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000
+);
 
 // controller to register/insert user
 export const insertUser = async (req: Request, res: Response): Promise<void> => {
@@ -92,7 +100,7 @@ export const getUserProfile = async (req: Request, res: Response): Promise<void>
   }
 
   try {
-    const [rows] = await db.query<RowDataPacket[]>("SELECT id, firstname, lastname, username_slug, email, other_email, phone, other_phone, avatar_url, theme_preference, role, is_approved, created_at, updated_at WHERE id = ?", [userId])
+    const [rows] = await db.query<RowDataPacket[]>("SELECT id, firstname, lastname, username_slug, email, other_email, phone, other_phone, avatar_url, theme_preference, bio, headline, location, role, portfolio_visibility, is_approved, last_login_at, is_profile_complete, created_at, updated_at FROM users WHERE id = ?", [userId])
 
     if(rows.length === 0) {
       res.status(404).json({
@@ -120,4 +128,78 @@ export const getUserProfile = async (req: Request, res: Response): Promise<void>
     return;
   }
   
+}
+
+// controller to login user
+export const loginUser = async (req: Request, res: Response): Promise<void>=> {
+
+  const { email, password }: RequestBody = req.body;
+
+  if(!email || !password) {
+    res.status(400).json({
+      success: false,
+      error: "email and password are require for login!"
+    })
+    return;
+  }
+
+  try {
+    const [rows] = await db.query<RowDataPacket[]>("SELECT id, firstname, lastname, username_slug, email, password_hash, other_email, phone, other_phone, avatar_url, theme_preference, bio, headline, location, role, portfolio_visibility, is_approved, last_login_at, is_profile_complete, created_at, updated_at FROM users WHERE email = ?", [email]);
+
+    if(rows.length === 0) {
+      res.status(404).json({
+        success: false,
+        error: "Invalid email or password!"
+      });
+      return;
+    }
+
+    const user = rows[0];
+    // check if password is correct
+    const isMatch = await compareHashedItem(password, user?.password_hash);
+    if(!isMatch) {
+      res.status(401).json({
+        success: false,
+        error: "Invalid email or password"
+      });
+      return;
+    }
+
+    // generate refresh and access tokens
+    const accessToken = await signAccessToken({ id: user?.id, email: user?.email });
+    const refreshToken = await signRefreshToken({ id: user?.id, email: user?.email })
+
+    // store refresh token in httpOnly cookie
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production" ? true : false,
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      path: "/",
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    // hash refresh token
+    const hashedRefreshToken = await hashItem(refreshToken);
+
+    const id = uuid();
+
+    // insert hashed refresh token into database
+    await db.query("INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES (?, ?, ? ,?)", [id, user?.id, hashedRefreshToken, expiresAt]);
+
+    res.status(200).json({
+      success: true,
+      message: "User logged in successfully!✅",
+      accessToken,
+      user
+    })
+    return;
+
+  } catch(err) {
+    console.error("Failed to login!", err);
+    res.status(500).json({
+      success: false,
+      error: "Database error!"
+    });
+    return;
+  }
 }
