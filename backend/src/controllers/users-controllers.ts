@@ -8,10 +8,11 @@ import { signAccessToken, signRefreshToken } from "../utils/jwt";
 //import "../types/express";
 
 interface RequestBody {
-  firstname?: string
-  lastname?: string
-  email?: string
-  password?: string
+  firstname: string
+  lastname: string
+  othername: string | null
+  email: string
+  password: string
 }
 
 const REFRESH_TOKEN_EXPIRY_DAYS = 7;
@@ -23,7 +24,7 @@ const expiresAt = new Date(
 // controller to register/insert user
 export const insertUser = async (req: Request, res: Response): Promise<void> => {
 
-  const { firstname, lastname, email, password }: RequestBody = req.body;
+  const { firstname, lastname, othername, email, password }: RequestBody = req.body;
 
   if(!firstname || !lastname || !email || !password) {
     res.status(400).json({
@@ -49,19 +50,37 @@ export const insertUser = async (req: Request, res: Response): Promise<void> => 
   // get the hashed password and id and form the username slug
   const id = uuid();
   const hashedPassword = await hashItem(password);
-  const suggestedUsernameSlug = `${firstname?.toLowerCase()}-${lastname?.toLowerCase()}`;
+
+  const sanitizedFirstname = firstname.trim().toLowerCase();
+  const sanitizedLastname = lastname.trim().toLowerCase();
+  const sanitizedOthername = othername?.trim().toLowerCase();
+
+  const suggestedUsernameSlug = sanitizedOthername
+    ? `${sanitizedFirstname}-${sanitizedOthername}-${sanitizedLastname}`
+    : `${sanitizedFirstname}-${sanitizedLastname}`;
 
   // check if suggested username slug is in use
   const [slugs] = await db.query<RowDataPacket[]>("SELECT username_slug FROM users WHERE username_slug = ?", [suggestedUsernameSlug]);
 
   
-    // if it is in use, give user a new slug
-    const usernameSlug =  slugs.length > 0 ? `${suggestedUsernameSlug}-${generateSlugSuffix()}` : suggestedUsernameSlug;
-  
+  // if it is in use, give user a new slug
+  const usernameSlug =  slugs.length > 0 ? `${suggestedUsernameSlug}-${generateSlugSuffix()}` : suggestedUsernameSlug;
+
+  // dynamically set the database query in case othername is null
+  let insertQuery: string;
+  let params: (string | null)[];
+
+  if(othername) {
+    insertQuery = "INSERT INTO users (id, firstname, lastname, other_name, email, username_slug, password_hash) VALUES (?, ?, ?, ?, ?, ?, ?)";
+    params = [id, firstname, lastname, othername, email, usernameSlug, hashedPassword];
+  } else {
+      insertQuery = "INSERT INTO users (id, firstname, lastname, email, username_slug, password_hash) VALUES (?, ?, ?, ?, ?, ?)";
+      params = [id, firstname, lastname, email, usernameSlug, hashedPassword];
+    }
 
   // insert info into database
   try{
-    await db.query("INSERT INTO users (id, firstname, lastname, email, username_slug, password_hash) VALUES (?, ?, ?, ?, ?, ?)", [id, firstname, lastname, email, usernameSlug, hashedPassword]);
+    await db.query<RowDataPacket[]>(insertQuery, params);
 
     res.status(201).json({
       success: true,
@@ -69,6 +88,7 @@ export const insertUser = async (req: Request, res: Response): Promise<void> => 
       user: {
         id,
         firstname,
+        othername,
         lastname,
         email,
         usernameSlug
@@ -100,7 +120,7 @@ export const getUserProfile = async (req: Request, res: Response): Promise<void>
   }
 
   try {
-    const [rows] = await db.query<RowDataPacket[]>("SELECT id, firstname, lastname, username_slug, email, other_email, phone, other_phone, avatar_url, theme_preference, bio, headline, location, role, portfolio_visibility, is_approved, last_login_at, is_profile_complete, created_at, updated_at FROM users WHERE id = ?", [userId])
+    const [rows] = await db.query<RowDataPacket[]>("SELECT id, firstname, lastname, other_name, username_slug, email, other_email, phone, other_phone, avatar_url, theme_preference, bio, headline, location, role, portfolio_visibility, is_approved, last_login_at, is_profile_complete, created_at, updated_at FROM users WHERE id = ?", [userId])
 
     if(rows.length === 0) {
       res.status(404).json({
@@ -144,7 +164,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void>=> {
   }
 
   try {
-    const [rows] = await db.query<RowDataPacket[]>("SELECT id, firstname, lastname, username_slug, email, password_hash, other_email, phone, other_phone, avatar_url, theme_preference, bio, headline, location, role, portfolio_visibility, is_approved, last_login_at, is_profile_complete, created_at, updated_at FROM users WHERE email = ?", [email]);
+    const [rows] = await db.query<RowDataPacket[]>("SELECT * FROM users WHERE email = ?", [email]);
 
     if(rows.length === 0) {
       res.status(404).json({
@@ -190,7 +210,29 @@ export const loginUser = async (req: Request, res: Response): Promise<void>=> {
       success: true,
       message: "User logged in successfully!✅",
       accessToken,
-      user
+      user: {
+        id: user?.id,
+        firstname: user?.firstname,
+        lastname: user?.lastname,
+        othername: user?.other_name,
+        username_slug: user?.username_slug,
+        email: user?.email,
+        other_email: user?.other_email,
+        phone: user?.phone,
+        other_phone: user?.other_phone,
+        avatar_url: user?.avatar_url,
+        theme_preference: user?.theme_preference,
+        bio: user?.bio,
+        headline: user?.headline,
+        location: user?.location,
+        role: user?.role,
+        portfolio_visibility: user?.portfolio_visibiltiy,
+        is_approved: user?.is_approved,
+        last_login_at: user?.last_login_at,
+        is_profile_complete: user?.is_profile_complete,
+        created_at: user?.created_at,
+        updated_at: user?.updated_at
+      }
     })
     return;
 
@@ -203,3 +245,9 @@ export const loginUser = async (req: Request, res: Response): Promise<void>=> {
     return;
   }
 }
+
+// controller to update user profile (dynamically)
+// export const updateUserProfile = async (req: Request, res: Response): Promise<void> => {
+//   const userId = req.user!.id;
+//   const { firstname, lastname, username }
+// }
