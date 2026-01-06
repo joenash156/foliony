@@ -4,8 +4,8 @@ import db from "../configs/database";
 import { Request, Response } from "express"
 import { v4 as uuid } from "uuid";
 import { ResultSetHeader, RowDataPacket } from "mysql2";
-import { signAccessToken, signRefreshToken } from "../utils/jwt";
-//import "../types/express";
+import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../utils/jwt";
+
 
 interface RequestBody {
   firstname: string
@@ -22,6 +22,8 @@ interface RequestBody {
   location: string
   role: string
   portfolioVisibility: string
+  newPassword: string
+  themePreference: string
 }
 
 const REFRESH_TOKEN_EXPIRY_DAYS = 7;
@@ -109,7 +111,7 @@ export const insertUser = async (req: Request, res: Response): Promise<void> => 
     console.error("Failed registering user!", err)
     res.status(500).json({
       success: false,
-      error: "Failed registering user. Database error!"
+      error: "Failed registering user. Internal server error!"
     })
 
     return
@@ -152,7 +154,7 @@ export const getUserProfile = async (req: Request, res: Response): Promise<void>
     console.error("User not found: ", err);
     res.status(500).json({
       success: false,
-      error: "User not found. Database error"
+      error: "User not found. Internal server error"
     });
     return;
   }
@@ -242,7 +244,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void>=> {
         headline: user?.headline,
         location: user?.location,
         role: user?.role,
-        portfolio_visibility: user?.portfolio_visibiltiy,
+        portfolio_visibility: user?.portfolio_visibility,
         is_approved: user?.is_approved,
         last_login_at: lastLoginAt,
         is_profile_complete: user?.is_profile_complete,
@@ -256,7 +258,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void>=> {
     console.error("Failed to login!", err);
     res.status(500).json({
       success: false,
-      error: "Failed to login user. Database error!"
+      error: "Failed to login user. Internal server error!"
     });
     return;
   }
@@ -264,7 +266,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void>=> {
 
 // controller to update user profile (dynamically)
 export const updateUserProfile = async (req: Request, res: Response): Promise<void> => {
-  const userId = req.user!.id;
+  const userId: string = req.user!.id;
   const { firstname, lastname, othername, usernameSlug, otherEmail, phone, otherPhone, bio, headline, location, role, portfolioVisibility}: RequestBody = req.body;
 
   try {
@@ -353,7 +355,7 @@ export const updateUserProfile = async (req: Request, res: Response): Promise<vo
     console.error("Failed to update user profile: ", err)
     res.status(500).json({
       success: false,
-      error: "Failed to update user profile. Database error!"
+      error: "Failed to update user profile. Internal server error!"
     })
     return;
   }
@@ -363,7 +365,7 @@ export const updateUserProfile = async (req: Request, res: Response): Promise<vo
 
 // controller to delete user account
 export const deleteUser = async (req: Request, res: Response): Promise<void> => {
-  const userId = req.user!.id;
+  const userId: string = req.user!.id;
   const { password }: RequestBody = req.body;
 
   if(!password) {
@@ -419,7 +421,7 @@ export const deleteUser = async (req: Request, res: Response): Promise<void> => 
     console.error("Failed to delete user!: ", err);
     res.status(500).json({
       success: false,
-      error: "Failed to delete user. Database error"
+      error: "Failed to delete user. Internal server error"
     });
     return;
   }
@@ -427,3 +429,281 @@ export const deleteUser = async (req: Request, res: Response): Promise<void> => 
 }
 
 // controller to change user password
+export const changePassword = async (req: Request, res: Response): Promise<void> => {
+  const userId: string = req.user!.id;
+  const { password, newPassword }: RequestBody = req.body;
+
+  if(!password || !newPassword) {
+    res.status(400).json({
+      success: false,
+      error: "Password and new password are required!"
+    })
+    return;
+  }
+  // make a query to veridy old password
+  try {
+    const [rows] = await db.query<RowDataPacket[]>("SELECT password_hash FROM users WHERE id = ?", [userId]);
+
+    if(rows.length === 0) {
+      res.status(404).json({
+        success: false,
+        error: "No user found with the password!"
+      })
+      return;
+    }
+
+    const user = rows[0];
+
+    // check to see if password entered is correct
+    const isMatch = await compareHashedItem(password, user?.password_hash);
+
+    if(!isMatch) {
+      res.status(401).json({
+        success: false,
+        error: "Password is incorrect!"
+      })
+      return;
+    }
+
+    // hash the updated password
+    const hashedUpdatedPassword = await hashItem(newPassword);
+
+    // insert new password into database
+    const [results] = await db.query<ResultSetHeader>("UPDATE users SET password_hash = ? WHERE id = ?", [hashedUpdatedPassword, userId]);
+
+    if(results.affectedRows === 0) {
+      res.status(401).json({
+        success: false,
+        error: "Unable to update user password. Try again!"
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "User password changed successfully!✅"
+    });
+    return;
+
+  } catch(err: unknown) {
+      console.error("Failed to update user password! ", err);
+      res.status(500).json({
+        success: false,
+        error: "Failed to update user password. Internal server error"
+      });
+      return;
+  }
+
+}
+
+// controller to change user theme preference
+export const changeThemePreference = async (req: Request, res: Response): Promise<void> => {
+
+  const userId: string = req.user!.id;
+  const  { themePreference }: RequestBody = req.body;
+
+  if(!themePreference) {
+    res.status(400).json({
+      success: false,
+      error: "A theme is required! (e.g. light, dark, system)"
+    });
+    return;
+  }
+
+  try {
+    await db.query<ResultSetHeader>("UPDATE users SET theme_preference = ? WHERE id = ?", [themePreference, userId]);
+
+    // get the update theme from the database
+    const [rows] = await db.query<RowDataPacket[]>("SELECT id, email, theme_preference FROM users WHERE id = ?", [userId]);
+
+    res.status(200).json({
+      success: true,
+      message: "User theme update successfully!✅",
+      user: rows[0]
+    });
+    return;
+
+  } catch(err: unknown) {
+      console.error("Failed to update user theme: ", err);
+      res.status(500).json({
+        success: false,
+        error: "Failed to update user theme. Internal server error"
+      });
+      return;
+  } 
+
+}
+
+// controller to generate new access token with existing refresh token
+export const generateNewAccessToken = async (req: Request, res: Response): Promise<void> => {
+  const { refreshToken }: { refreshToken?:string } = req.cookies;
+  
+  if(!refreshToken) {
+    res.status(400).json({
+      success: false,
+      error: "Refresh token is required!"
+    })
+    return;
+  }
+
+  try {
+    // verify refresh token
+    const payload = await verifyRefreshToken(refreshToken);
+  
+    const [rows] = await db.query<RowDataPacket[]>("SELECT id, user_id, token_hash, expires_at, is_revoked FROM refresh_tokens WHERE user_id = ? AND is_revoked = 0", [payload?.id]);
+
+    let matchedRefreshToken: RowDataPacket | null = null;
+
+    for(const row of rows) {
+      const isMatch = await compareHashedItem(refreshToken, row.token_hash);
+      if(isMatch) {
+        matchedRefreshToken = row;
+        break;
+      }
+    }
+
+    if(!matchedRefreshToken) {
+      res.status(404).json({
+        success: false,
+        error: "Refresh token not found or is invalid"
+      });
+      return;
+    }
+
+    if(matchedRefreshToken?.is_revoked) {
+      res.status(401).json({
+        success: false,
+        error: "Refresh token is revoked"
+      });
+      return;
+    }
+
+    if(new Date(matchedRefreshToken?.expires_at) < new Date()) {
+      res.status(401).json({
+        success: false,
+        error: "Refresh token is expired!"
+      });
+      return;
+    }
+
+    // sign new access and refresh token to user
+    const newAccessToken = await signAccessToken({ id: payload?.id, email: payload?.email });
+    const newRefreshToken = await signRefreshToken({ id: payload?.id, email: payload?.email });
+
+    // hash the new refresh token
+    const newHashedRefreshToken = await hashItem(newRefreshToken);
+
+    const id = uuid();
+
+    // update the database 
+    await db.query<ResultSetHeader>("INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?)", [id, payload?.id, newHashedRefreshToken, expiresAt]);
+
+    // revoke the old refresh token
+    await db.query<ResultSetHeader>("UPDATE refresh_tokens SET is_revoked = 1 WHERE id = ?", [matchedRefreshToken?.id]);
+
+    // store new refresh token in httpOnly cookies
+    res.cookie("refreshToken", newRefreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production" ? true : false,
+      sameSite: "none",
+      path: "/",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    })
+
+    res.status(200).json({
+      success: true,
+      accessToken: newAccessToken
+    });
+    return;
+
+  } catch(err: any) {
+      console.error("Failed to refresh: ", err);
+      // clear the refresh token from the browser cookie
+      res.clearCookie("refreshToken", {
+        httpOnly: true,
+        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+        path: "/user/refresh",
+      });
+
+      if (err.name === "TokenExpiredError") {
+        res.status(401).json({
+          success: false,
+          error: "Refresh token expired",
+        });
+        return;
+      } else {
+        res.status(401).json({
+          success: false,
+          error: "Invalid refresh token",
+        });
+        return;
+      }
+  }
+}
+
+// controller to log out user
+export const logoutUser = async (req: Request, res: Response): Promise<void> => {
+  const { refreshToken }: { refreshToken?: string } = req.cookies;
+
+  if(!refreshToken) {
+    res.status(400).json({
+      success: false,
+      error: "Refresh token required! User might be logged out already"
+    })
+    return;
+  }
+
+  try {
+    let payload;
+
+    // try to verify refresh token if it is not expired
+    try {
+      payload = await verifyRefreshToken(refreshToken);
+    } catch(err: unknown) {
+      // incase refresh token is expired, decode it manually be removed from database
+      const base64Payload = refreshToken.split(".")[1];
+      payload = JSON.parse(Buffer.from(base64Payload as string, "base64").toString());
+
+    } finally {
+        const userId = payload?.id;
+
+        // make a query to get the exact refresh token to revoke
+        const [rows] = await db.query<RowDataPacket[]>("SELECT * FROM refresh_tokens WHERE user_id = ?", [userId]);
+
+        let matchedRefreshToken: RowDataPacket | null = null;
+
+        for(const row of rows) {
+          const isMatch = await compareHashedItem(refreshToken, row?.token_hash);
+          if(isMatch) {
+            matchedRefreshToken = row;
+            break;
+          }
+        }
+
+        // set the revoke the refresh token in the database
+        await db.query<ResultSetHeader>("UPDATE refresh_tokens SET is_revoked = 1 WHERE id = ? AND user_id = ?", [matchedRefreshToken?.id, matchedRefreshToken?.user_id]);
+
+        // clear the refresh token from the coolie
+        res.clearCookie("refreshToken", {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production" ? true : false,
+          sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+          path: "/",
+        });
+
+        res.status(200).json({
+          success: true,
+          message: "User logged out successfully!✅"
+        });
+        return;
+    }
+
+  } catch(err: unknown) {
+      console.error("Failed to log out user: ", err);
+      res.status(500).json({
+        success: false,
+        error: "Failed to log out user. Internal server error!"
+      })
+  } 
+} 
+
