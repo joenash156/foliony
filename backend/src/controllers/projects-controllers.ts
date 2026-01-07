@@ -10,7 +10,7 @@ interface InsertProjectRequestBody {
   githubURL: string,
   liveURL: string,
   image: string,
-  isVisible: number 
+  isVisible: boolean 
 }
 
 
@@ -58,6 +58,40 @@ export const insertProject = async (req: Request, res: Response): Promise<void> 
   }
 
   // normalize inputs for tech stacks
-  
+  const cleanTechStacks: string[] = [];
+
+  for (const stack of techStacks) {
+    const normalized = stack.trim().toLowerCase();
+
+    if (!normalized) continue;
+
+    if (!cleanTechStacks.includes(normalized)) {
+      cleanTechStacks.push(normalized);
+    }
+  }
+
+  try {
+    
+    const projectId = uuid();
+
+    const [project] = await db.query<ResultSetHeader>("INSERT INTO projects (id, user_id, title, description, github_url, live_url, image, is_visible) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [projectId, userId, title, description, githubURL, liveURL, image, isVisible]);
+
+    if(project.affectedRows === 0) {
+      res.status(500).json({
+        success: false,
+        error: "Failed to insert project!"
+      });
+      return
+    }
+
+    // query tech stacks table to get all existing stack ids
+    const [stacks] = await db.query<RowDataPacket[]>(`SELECT id, name FROM tech_stacks WHERE name IN (?)`, [cleanTechStacks]);
+
+    
+
+
+  } catch(err: unknown) {
+
+  }
 
 }
